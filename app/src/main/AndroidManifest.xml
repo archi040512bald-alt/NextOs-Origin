@@ -9,7 +9,9 @@
     </queries>
 
     <application
-        android:label="Launcher"
+        android:icon="@drawable/ic_launcher"
+        android:roundIcon="@drawable/ic_launcher"
+        android:label="NextOS Launcher"
         android:theme="@style/Theme.Launcher">
         <activity
             android:name=".MainActivity"
