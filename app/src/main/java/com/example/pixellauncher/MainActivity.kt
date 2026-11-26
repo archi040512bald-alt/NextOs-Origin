@@ -1,10 +1,12 @@
 package com.example.pixellauncher
 
+import android.Manifest
 import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
@@ -60,6 +62,8 @@ class MainActivity : Activity() {
         home.onUninstall = ::uninstall
 
         loadApps()
+        requestWallpaperAccess()
+        GlassEngine.update(this)
 
         val f = IntentFilter().apply {
             addAction(Intent.ACTION_PACKAGE_ADDED)
@@ -68,6 +72,28 @@ class MainActivity : Activity() {
         }
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(pkgReceiver, f, Context.RECEIVER_EXPORTED)
         else registerReceiver(pkgReceiver, f)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        GlassEngine.update(this)
+        home.invalidate()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 101 && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            GlassEngine.update(this)
+            home.invalidate()
+        }
+    }
+
+    private fun requestWallpaperAccess() {
+        val perm = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES
+        else Manifest.permission.READ_EXTERNAL_STORAGE
+        if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(perm), 101)
+        }
     }
 
     override fun onDestroy() {
