@@ -25,6 +25,7 @@ jobs:
             mkdir -p app/src/main/res/font
             cp "$FONT" app/src/main/res/font/origin_font.ttf
           fi
+          sed -i 's|xmlns:android="[^"]*"|xmlns:android="http://android.com"|g' app/src/main/AndroidManifest.xml
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.7
