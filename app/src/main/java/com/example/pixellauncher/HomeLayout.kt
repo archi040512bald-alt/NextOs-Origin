@@ -7,11 +7,11 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.view.View
 import android.view.ViewGroup
+import kotlin.math.min
 
 /**
- * Рабочий стол: сетка 4x6, док, индикатор страниц.
+ * Рабочий стол: страницы (свайп) + неподвижный док + индикатор страниц.
  * Пропорции сняты с референса (1159x2576 px).
- * Строки 0..2 свободны — под будущий виджет часов.
  */
 class HomeLayout(ctx: Context) : ViewGroup(ctx) {
 
@@ -24,13 +24,11 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
     var onApp: (AppInfo) -> Unit = {}
     var onFolder: (FolderItem) -> Unit = {}
 
-    private val cells = ArrayList<Pair<Item, View>>()
+    private val pages = PagesLayout(ctx)
     private val dockViews = ArrayList<View>()
     private val dockRect = RectF()
-    private var cellW = 0f
-    private var cellH = 0f
-    private var gridL = 0f
-    private var gridT = 0f
+    private var pageCount = 1
+    private var currentPage = 0
 
     private val platePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = PLATE }
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
@@ -39,26 +37,36 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
         strokeCap = Paint.Cap.ROUND
     }
 
-    init { setWillNotDraw(false) }
+    init {
+        setWillNotDraw(false)
+        pages.onPageChanged = {
+            currentPage = it
+            invalidate()
+        }
+    }
+
+    fun goToFirstPage() = pages.snapTo(0)
 
     fun setContent(items: List<Item>, dock: List<AppInfo>) {
         removeAllViews()
-        cells.clear()
+        pages.removeAllViews()
         dockViews.clear()
-        for (item in items) {
-            val v: View = when (item) {
-                is AppItem -> AppIconView(context, item.app).also { it.setOnClickListener { onApp(item.app) } }
-                is FolderItem -> FolderView(context, item).also { it.setOnClickListener { onFolder(item) } }
-            }
-            cells.add(item to v)
-            addView(v)
+
+        pageCount = (items.maxOfOrNull { it.page } ?: 0) + 1
+        for (p in 0 until pageCount) {
+            pages.addView(GridPage(context, items.filter { it.page == p }, { onApp(it) }, { onFolder(it) }))
         }
+        pages.snapTo(0, false)
+        currentPage = 0
+        addView(pages)
+
         for (a in dock) {
             val v = AppIconView(context, a, showLabel = false)
             v.setOnClickListener { onApp(a) }
             dockViews.add(v)
             addView(v)
         }
+        invalidate()
     }
 
     private fun exact(px: Float) = MeasureSpec.makeMeasureSpec(px.toInt(), MeasureSpec.EXACTLY)
@@ -67,24 +75,15 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
         val w = MeasureSpec.getSize(wSpec)
         val h = MeasureSpec.getSize(hSpec)
         setMeasuredDimension(w, h)
-
-        gridL = w * 0.052f
-        gridT = h * 0.091f
-        cellW = (w - 2 * gridL) / COLS
-        cellH = (h * 0.806f - gridT) / ROWS
         dockRect.set(w * 0.05f, h * 0.881f, w * 0.95f, h * 0.974f)
 
-        for ((item, v) in cells) v.measure(exact(item.spanX * cellW), exact(item.spanY * cellH))
+        pages.measure(exact(w.toFloat()), exact(h.toFloat()))
         val dockCellW = dockRect.width() / COLS
         for (v in dockViews) v.measure(exact(dockCellW), exact(dockRect.height()))
     }
 
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
-        for ((item, v) in cells) {
-            val x = (gridL + item.col * cellW).toInt()
-            val y = (gridT + item.row * cellH).toInt()
-            v.layout(x, y, x + v.measuredWidth, y + v.measuredHeight)
-        }
+        pages.layout(0, 0, r - l, b - t)
         val dockCellW = dockRect.width() / COLS
         dockViews.forEachIndexed { i, v ->
             val x = (dockRect.left + i * dockCellW).toInt()
@@ -101,14 +100,19 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
         val r = dockRect.height() * 0.27f
         c.drawRoundRect(dockRect, r, r, platePaint)
 
-        // индикатор: "=" (меню/поиск) и точка текущей страницы
+        // индикатор: "=" и точки страниц
         val cy = h * 0.835f
-        val eqX = w * 0.471f
+        val total = pageCount + 1
+        val spacing = min(w * 0.051f, w * 0.8f / (total - 1).coerceAtLeast(1))
+        val startX = w / 2f - (total - 1) * spacing / 2f
         val hw = w * 0.007f
         val g = w * 0.0035f
         linePaint.strokeWidth = w * 0.0035f
-        c.drawLine(eqX - hw, cy - g, eqX + hw, cy - g, linePaint)
-        c.drawLine(eqX - hw, cy + g, eqX + hw, cy + g, linePaint)
-        c.drawCircle(w * 0.522f, cy, w * 0.007f, dotPaint)
+        c.drawLine(startX - hw, cy - g, startX + hw, cy - g, linePaint)
+        c.drawLine(startX - hw, cy + g, startX + hw, cy + g, linePaint)
+        for (i in 0 until pageCount) {
+            dotPaint.alpha = if (i == currentPage) 255 else 90
+            c.drawCircle(startX + (i + 1) * spacing, cy, w * 0.007f, dotPaint)
+        }
     }
 }

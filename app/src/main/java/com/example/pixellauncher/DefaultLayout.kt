@@ -1,8 +1,8 @@
 package com.example.pixellauncher
 
 /**
- * Раскладка как на референсе. Приложения подбираются по пакетам;
- * если нужного нет — ячейка заполняется любым свободным приложением.
+ * Страница 0 — как на референсе (папки, ряд приложений, док).
+ * Все остальные приложения автоматически раскладываются по страницам 1, 2, 3...
  */
 object DefaultLayout {
 
@@ -31,7 +31,6 @@ object DefaultLayout {
     fun build(all: List<AppInfo>): Pair<List<Item>, List<AppInfo>> {
         val p = Picker(all)
 
-        // сначала именованные
         val dockNamed = listOf(
             p.take("com.google.android.dialer", "com.android.dialer", "com.samsung.android.dialer", "com.android.contacts"),
             p.take("com.whatsapp"),
@@ -61,7 +60,6 @@ object DefaultLayout {
             "com.google.android.apps.tachyon", "com.google.android.apps.lens"
         )
 
-        // потом заполнение пустых мест
         val dock = dockNamed.mapNotNull { it ?: p.fill(1).firstOrNull() }
         val sug = sugNamed.filterNotNull().let { it + p.fill(4 - it.size) }
         val ess = essNamed.filterNotNull().let { it + p.fill(9 - it.size) }
@@ -74,6 +72,21 @@ object DefaultLayout {
         if (google.isNotEmpty()) items.add(FolderItem("Google", google, 2, 5, 1, 1))
         else p.fill(1).firstOrNull()?.let { items.add(AppItem(it, 2, 5)) }
         (store ?: p.fill(1).firstOrNull())?.let { items.add(AppItem(it, 3, 5)) }
+
+        // всё, что ещё не показано (ни на столе, ни в папках, ни в доке) — на страницы 1..N
+        val shown = HashSet<String>()
+        dock.forEach { shown.add(it.pkg) }
+        for (item in items) {
+            when (item) {
+                is AppItem -> shown.add(item.app.pkg)
+                is FolderItem -> item.apps.forEach { shown.add(it.pkg) }
+            }
+        }
+        val perPage = HomeLayout.COLS * HomeLayout.ROWS
+        all.filter { it.pkg !in shown }.forEachIndexed { i, app ->
+            val cell = i % perPage
+            items.add(AppItem(app, cell % HomeLayout.COLS, cell / HomeLayout.COLS, 1 + i / perPage))
+        }
 
         return items to dock
     }
