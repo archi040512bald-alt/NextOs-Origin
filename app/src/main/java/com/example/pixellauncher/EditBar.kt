@@ -29,7 +29,7 @@ class EditBar(ctx: Context) : View(ctx) {
     private val labels = arrayOf("Комплект", "Куб настройки", "Куб взаимодействия", "Настройки")
 
     private val plate = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(70, 255, 255, 255) }
-    private val plateSel = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(140, 255, 255, 255) }
+    private val plateSel = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(90, 255, 255, 255) }
     private val facePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val textP = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
@@ -87,19 +87,20 @@ class EditBar(ctx: Context) : View(ctx) {
         val w = width.toFloat()
 
         // счётчик страниц
-        c.drawRoundRect(pill, pill.height() / 2f, pill.height() / 2f, plate)
+        Backdrop.drawPlate(c, pill, pill, pill.height() / 2f)
         textP.textSize = w * 0.03f
         c.drawText("${current + 1}/$pageCount", pill.centerX(), pill.centerY() - (textP.ascent() + textP.descent()) / 2f, textP)
 
         // миниатюры
         for ((idx, r) in thumbs) {
             val rad = r.width() * 0.16f
-            c.drawRoundRect(r, rad, rad, if (idx == current) plateSel else plate)
+            Backdrop.drawPlate(c, r, r, rad)
+            if (idx == current) c.drawRoundRect(r, rad, rad, plateSel)
             drawThumbContent(c, idx, r)
         }
 
         // панель действий
-        c.drawRoundRect(panel, w * 0.06f, w * 0.06f, plate)
+        Backdrop.drawPlate(c, panel, panel, w * 0.06f)
         val iconS = w * 0.065f
         textP.textSize = w * 0.03f
         for (i in 0 until 4) {

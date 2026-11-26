@@ -9,9 +9,30 @@ import android.graphics.RectF
 import android.text.TextPaint
 import android.text.TextUtils
 import android.view.View
+import kotlin.math.min
 
-/** Папка на рабочем столе: большая (2x2, превью 2x2 или 3x3) или маленькая (1x1, превью 3x3). */
+/**
+ * Папка на рабочем столе: большая (2x2, превью 2x2 или 3x3) или маленькая (1x1, превью 3x3).
+ * Сама плашка (размытый фон) рисуется в HomeLayout, здесь — иконки превью и подпись.
+ */
 class FolderView(ctx: Context, val folder: FolderItem) : View(ctx) {
+
+    companion object {
+        /** Прямоугольник плашки внутри ячейки размером w x h (координаты ячейки). */
+        fun plateRect(spanX: Int, spanY: Int, w: Float, h: Float, out: RectF) {
+            val cw = w / spanX
+            if (spanX > 1 || spanY > 1) {
+                val inset = cw * 0.175f
+                out.set(inset, 0f, w - inset, h - cw * 0.515f)
+            } else {
+                val s = w * AppIconView.ICON
+                out.set((w - s) / 2f, 0f, (w + s) / 2f, s)
+            }
+        }
+
+        fun plateRadius(spanX: Int, spanY: Int, r: RectF): Float =
+            if (spanX > 1 || spanY > 1) 0.14f * min(r.width(), r.height()) else 0.27f * r.width()
+    }
 
     private val big = folder.spanX > 1 || folder.spanY > 1
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -19,27 +40,17 @@ class FolderView(ctx: Context, val folder: FolderItem) : View(ctx) {
         color = Color.WHITE
         textAlign = Paint.Align.CENTER
         setShadowLayer(4f, 0f, 1.5f, 0x66000000)
-        runCatching {
-            val fontId = ctx.resources.getIdentifier("origin_font", "font", ctx.packageName)
-            if (fontId != 0) typeface = ctx.resources.getFont(fontId)
-        }
     }
     private val plate = RectF()
     private val dst = RectF()
+    private val srcR = Rect()
 
     init { isClickable = true }
 
     private fun cellW() = width / folder.spanX.toFloat()
 
     private fun updatePlate() {
-        val w = width.toFloat()
-        if (big) {
-            val inset = cellW() * 0.175f
-            plate.set(inset, 0f, w - inset, height - cellW() * 0.515f)
-        } else {
-            val s = w * AppIconView.ICON
-            plate.set((w - s) / 2f, 0f, (w + s) / 2f, s)
-        }
+        plateRect(folder.spanX, folder.spanY, width.toFloat(), height.toFloat(), plate)
     }
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
@@ -52,10 +63,6 @@ class FolderView(ctx: Context, val folder: FolderItem) : View(ctx) {
         updatePlate()
         val pw = plate.width()
         val ph = plate.height()
-        val r = if (big) 0.14f * minOf(pw, ph) else 0.27f * pw
-
-        // Рисуем матовое стекло OriginOS
-        GlassEngine.drawGlass(c, this, plate, r)
 
         // параметры превью: k x k иконок
         val k: Int
@@ -73,7 +80,8 @@ class FolderView(ctx: Context, val folder: FolderItem) : View(ctx) {
             val x = plate.left + pad + (i % k) * (s + gapX)
             val y = plate.top + pad + (i / k) * (s + gapY)
             dst.set(x, y, x + s, y + s)
-            c.drawBitmap(app.icon, Rect(0, 0, app.icon.width, app.icon.height), dst, iconPaint)
+            srcR.set(0, 0, app.icon.width, app.icon.height)
+            c.drawBitmap(app.icon, srcR, dst, iconPaint)
         }
 
         text.textSize = cellW() * 0.14f

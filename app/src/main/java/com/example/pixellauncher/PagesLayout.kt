@@ -17,6 +17,7 @@ class PagesLayout(ctx: Context) : ViewGroup(ctx) {
 
     var onPageChanged: (Int) -> Unit = {}
     var onTap: (() -> Unit)? = null
+    var onScrolled: (() -> Unit)? = null
     var page = 0
         private set
 
@@ -49,6 +50,7 @@ class PagesLayout(ctx: Context) : ViewGroup(ctx) {
 
     override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
         super.onScrollChanged(l, t, oldl, oldt)
+        onScrolled?.invoke()
         if (width > 0 && childCount > 0) {
             val p = (l / width.toFloat()).roundToInt().coerceIn(0, childCount - 1)
             if (p != page) {

@@ -125,6 +125,7 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
             invalidate()
         }
         pages.onTap = { if (editTarget) exitEdit() }
+        pages.onScrolled = { invalidate() } // плашки привязаны к обоям, перерисовываем при прокрутке
         bar.onPage = { pages.snapTo(it) }
         bar.onAction = { onAction(it) }
         bar.visibility = INVISIBLE
@@ -519,6 +520,25 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
 
     // ---- рисование ----
 
+    private val tmpRect = RectF()
+
+    /** Плашки папок рисуются здесь (под страницами), чтобы размытие совпадало с обоями при прокрутке. */
+    private fun drawFolderPlates(c: Canvas) {
+        val sc = if (editP > 0f) pages.scaleX else 1f
+        for (item in items) {
+            if (item !is FolderItem) continue
+            if (dragging && item === dragItem) continue
+            val x = gridL + item.col * cellW
+            val y = gridT + item.row * cellH
+            FolderView.plateRect(item.spanX, item.spanY, item.spanX * cellW, item.spanY * cellH, tmpRect)
+            val radius = FolderView.plateRadius(item.spanX, item.spanY, tmpRect) * sc
+            tmpRect.offset(x + item.page * width - pages.scrollX, y)
+            if (editP > 0f) pages.matrix.mapRect(tmpRect)
+            if (tmpRect.right < 0f || tmpRect.left > width) continue
+            Backdrop.drawPlate(c, tmpRect, tmpRect, radius)
+        }
+    }
+
     override fun onDraw(c: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
@@ -527,10 +547,9 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
         // затемнение в режиме редактирования (поверх размытых обоев)
         if (editP > 0f) c.drawColor(Color.argb((editP * 90).toInt(), 0, 0, 0))
 
-                // док (стекло OriginOS)
-        val r = dockRect.height() * 0.27f
-        GlassEngine.drawGlass(c, this, dockRect, r, fade)
-
+        // плашки папок и док (размытые обои)
+        drawFolderPlates(c)
+        if (fade > 0f) Backdrop.drawPlate(c, dockRect, dockRect, dockRect.height() * 0.27f, fade)
 
         // подсветка цели перетаскивания
         highlight?.let { c.drawRoundRect(it, it.width() * 0.14f, it.width() * 0.14f, hlPaint) }
