@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 
 class AppInfo(val label: String, val pkg: String, val cls: String, val icon: Bitmap)
 
-sealed class Item(val col: Int, val row: Int, val spanX: Int, val spanY: Int, val page: Int)
+sealed class Item(var col: Int, var row: Int, val spanX: Int, val spanY: Int, var page: Int)
 
 class AppItem(val app: AppInfo, col: Int, row: Int, page: Int = 0) : Item(col, row, 1, 1, page)
 

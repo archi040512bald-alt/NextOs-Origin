@@ -9,7 +9,8 @@ class GridPage(
     ctx: Context,
     items: List<Item>,
     onApp: (AppInfo) -> Unit,
-    onFolder: (FolderItem) -> Unit
+    onFolder: (FolderItem) -> Unit,
+    onLong: (Item, View) -> Unit
 ) : ViewGroup(ctx) {
 
     private val cells = ArrayList<Pair<Item, View>>()
@@ -23,6 +24,10 @@ class GridPage(
             val v: View = when (item) {
                 is AppItem -> AppIconView(ctx, item.app).also { it.setOnClickListener { onApp(item.app) } }
                 is FolderItem -> FolderView(ctx, item).also { it.setOnClickListener { onFolder(item) } }
+            }
+            v.setOnLongClickListener {
+                onLong(item, v)
+                true
             }
             cells.add(item to v)
             addView(v)
