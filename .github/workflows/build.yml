@@ -1,4 +1,4 @@
-      - name: Set app icon from root
+- name: Set app icon from root
         run: |
           ICON=$(ls *.png 2>/dev/null | head -n 1)
           if [ -n "$ICON" ]; then
