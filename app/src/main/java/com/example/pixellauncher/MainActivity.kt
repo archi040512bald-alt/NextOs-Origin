@@ -101,11 +101,9 @@ class MainActivity : Activity() {
 
     private fun onEditAction(i: Int) {
         when (i) {
-            0 -> try {
-                startActivity(Intent.createChooser(Intent(Intent.ACTION_SET_WALLPAPER), "Обои"))
-            } catch (_: Exception) {}
-            1 -> Toast.makeText(this, "Виджеты — скоро", Toast.LENGTH_SHORT).show()
-            2 -> Toast.makeText(this, "Анимации — скоро", Toast.LENGTH_SHORT).show()
+            0 -> Toast.makeText(this, "Комплект — скоро", Toast.LENGTH_SHORT).show()
+            1 -> Toast.makeText(this, "Куб настройки — скоро", Toast.LENGTH_SHORT).show()
+            2 -> Toast.makeText(this, "Куб взаимодействия — скоро", Toast.LENGTH_SHORT).show()
             else -> try {
                 startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
             } catch (_: Exception) {}
