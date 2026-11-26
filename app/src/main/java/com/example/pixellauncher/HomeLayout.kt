@@ -527,10 +527,10 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
         // затемнение в режиме редактирования (поверх размытых обоев)
         if (editP > 0f) c.drawColor(Color.argb((editP * 90).toInt(), 0, 0, 0))
 
-        // док
-        platePaint.color = Color.argb((64 * fade).toInt(), 255, 255, 255)
+                // док (стекло OriginOS)
         val r = dockRect.height() * 0.27f
-        c.drawRoundRect(dockRect, r, r, platePaint)
+        GlassEngine.drawGlass(c, this, dockRect, r, fade)
+
 
         // подсветка цели перетаскивания
         highlight?.let { c.drawRoundRect(it, it.width() * 0.14f, it.width() * 0.14f, hlPaint) }
