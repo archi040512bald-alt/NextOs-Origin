@@ -2,6 +2,7 @@ package com.example.pixellauncher
 
 import android.Manifest
 import android.app.Activity
+import android.app.WallpaperManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -12,6 +13,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.DisplayMetrics
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.core.view.WindowCompat
@@ -38,6 +40,10 @@ class MainActivity : Activity() {
         }
     }
 
+    private val wallpaperReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) = loadBackdrop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -62,44 +68,61 @@ class MainActivity : Activity() {
         home.onUninstall = ::uninstall
 
         loadApps()
-        requestWallpaperAccess()
-        GlassEngine.update(this)
+        ensureWallpaperAccess()
 
         val f = IntentFilter().apply {
             addAction(Intent.ACTION_PACKAGE_ADDED)
             addAction(Intent.ACTION_PACKAGE_REMOVED)
             addDataScheme("package")
         }
-        if (Build.VERSION.SDK_INT >= 33) registerReceiver(pkgReceiver, f, Context.RECEIVER_EXPORTED)
-        else registerReceiver(pkgReceiver, f)
-    }
-
-    override fun onResume() {
-        super.onResume()
-        GlassEngine.update(this)
-        home.invalidate()
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 101 && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-            GlassEngine.update(this)
-            home.invalidate()
-        }
-    }
-
-    private fun requestWallpaperAccess() {
-        val perm = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES
-        else Manifest.permission.READ_EXTERNAL_STORAGE
-        if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(perm), 101)
+        val wf = IntentFilter(Intent.ACTION_WALLPAPER_CHANGED)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(pkgReceiver, f, Context.RECEIVER_EXPORTED)
+            registerReceiver(wallpaperReceiver, wf, Context.RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(pkgReceiver, f)
+            registerReceiver(wallpaperReceiver, wf)
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         try { unregisterReceiver(pkgReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(wallpaperReceiver) } catch (_: Exception) {}
     }
+
+    // ---- размытие под папками и доком: нужен доступ к обоям ----
+
+    private fun wallpaperPermission() =
+        if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES
+        else Manifest.permission.READ_EXTERNAL_STORAGE
+
+    private fun ensureWallpaperAccess() {
+        if (checkSelfPermission(wallpaperPermission()) == PackageManager.PERMISSION_GRANTED) {
+            loadBackdrop()
+        } else {
+            requestPermissions(arrayOf(wallpaperPermission()), 1)
+        }
+    }
+
+    override fun onRequestPermissionsResult(code: Int, perms: Array<out String>, results: IntArray) {
+        super.onRequestPermissionsResult(code, perms, results)
+        if (code == 1 && results.firstOrNull() == PackageManager.PERMISSION_GRANTED) loadBackdrop()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun loadBackdrop() {
+        val dm = DisplayMetrics()
+        windowManager.defaultDisplay.getRealMetrics(dm)
+        val ctx = applicationContext
+        Thread {
+            if (Backdrop.load(ctx, dm.widthPixels, dm.heightPixels)) {
+                runOnUiThread { home.invalidate() }
+            }
+        }.start()
+    }
+
+    // ---- приложения ----
 
     private fun loadApps() {
         val apps = AppRepo.load(this)
