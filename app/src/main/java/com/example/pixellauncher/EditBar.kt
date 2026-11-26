@@ -7,8 +7,12 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
+import android.text.TextPaint
+import android.text.TextUtils
 import android.view.MotionEvent
 import android.view.View
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * Нижняя часть режима редактирования: счётчик страниц "2/6",
@@ -22,11 +26,12 @@ class EditBar(ctx: Context) : View(ctx) {
     var onPage: (Int) -> Unit = {}
     var onAction: (Int) -> Unit = {}
 
-    private val labels = arrayOf("Обои", "Виджеты", "Анимации", "Настройки")
+    private val labels = arrayOf("Комплект", "Куб настройки", "Куб взаимодействия", "Настройки")
 
     private val plate = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(70, 255, 255, 255) }
     private val plateSel = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(140, 255, 255, 255) }
-    private val textP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val facePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val textP = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textAlign = Paint.Align.CENTER
     }
@@ -101,7 +106,8 @@ class EditBar(ctx: Context) : View(ctx) {
             val s = slots[i]
             val cx = s.centerX()
             drawIcon(c, i, cx, panel.top + panel.height() * 0.38f, iconS)
-            c.drawText(labels[i], cx, panel.top + panel.height() * 0.82f, textP)
+            val label = TextUtils.ellipsize(labels[i], textP, s.width() * 0.96f, TextUtils.TruncateAt.END).toString()
+            c.drawText(label, cx, panel.top + panel.height() * 0.82f, textP)
         }
     }
 
@@ -134,32 +140,56 @@ class EditBar(ctx: Context) : View(ctx) {
         }
     }
 
+    private fun fillFace(
+        c: Canvas, color: Int,
+        x1: Float, y1: Float, x2: Float, y2: Float,
+        x3: Float, y3: Float, x4: Float, y4: Float
+    ) {
+        path.reset()
+        path.moveTo(x1, y1)
+        path.lineTo(x2, y2)
+        path.lineTo(x3, y3)
+        path.lineTo(x4, y4)
+        path.close()
+        facePaint.color = color
+        c.drawPath(path, facePaint)
+    }
+
+    /** Изометрический куб: верхняя, левая и правая грани. */
+    private fun drawCube(c: Canvas, cx: Float, cy: Float, r: Float, top: Int, left: Int, right: Int) {
+        val dx = r * 0.866f
+        fillFace(c, top, cx, cy - r, cx + dx, cy - r / 2, cx, cy, cx - dx, cy - r / 2)
+        fillFace(c, left, cx - dx, cy - r / 2, cx, cy, cx, cy + r, cx - dx, cy + r / 2)
+        fillFace(c, right, cx, cy, cx + dx, cy - r / 2, cx + dx, cy + r / 2, cx, cy + r)
+    }
+
     private fun drawIcon(c: Canvas, i: Int, cx: Float, cy: Float, s: Float) {
         when (i) {
-            0 -> { // обои
-                tmp.set(cx - s * 0.5f, cy - s * 0.42f, cx + s * 0.5f, cy + s * 0.42f)
-                c.drawRoundRect(tmp, s * 0.18f, s * 0.18f, iconP)
-                c.drawCircle(cx + s * 0.15f, cy - s * 0.1f, s * 0.1f, glyphFill)
-            }
-            1 -> { // виджеты
+            0 -> { // Комплект: белый круг с плюсом
                 c.drawCircle(cx, cy, s * 0.5f, iconP)
                 glyphStroke.strokeWidth = s * 0.1f
                 c.drawLine(cx - s * 0.2f, cy, cx + s * 0.2f, cy, glyphStroke)
                 c.drawLine(cx, cy - s * 0.2f, cx, cy + s * 0.2f, glyphStroke)
             }
-            2 -> { // анимации
-                c.drawCircle(cx, cy, s * 0.5f, iconP)
+            1 -> drawCube( // Куб настройки: тёплый
+                c, cx, cy, s * 0.56f,
+                Color.rgb(255, 224, 190), Color.rgb(255, 170, 105), Color.rgb(238, 128, 78)
+            )
+            2 -> drawCube( // Куб взаимодействия: серый
+                c, cx, cy, s * 0.56f,
+                Color.rgb(240, 240, 246), Color.rgb(196, 198, 208), Color.rgb(150, 153, 166)
+            )
+            else -> { // Настройки: шестиугольник с отверстием
                 path.reset()
-                path.moveTo(cx - s * 0.12f, cy - s * 0.2f)
-                path.lineTo(cx - s * 0.12f, cy + s * 0.2f)
-                path.lineTo(cx + s * 0.2f, cy)
+                for (k in 0 until 6) {
+                    val a = Math.toRadians(60.0 * k + 30.0).toFloat()
+                    val x = cx + s * 0.54f * cos(a)
+                    val y = cy + s * 0.54f * sin(a)
+                    if (k == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
                 path.close()
-                c.drawPath(path, glyphFill)
-            }
-            else -> { // настройки
-                c.drawCircle(cx, cy, s * 0.5f, iconP)
-                glyphStroke.strokeWidth = s * 0.1f
-                c.drawCircle(cx, cy, s * 0.2f, glyphStroke)
+                c.drawPath(path, iconP)
+                c.drawCircle(cx, cy, s * 0.2f, glyphFill)
             }
         }
     }
