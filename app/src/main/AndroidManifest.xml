@@ -2,6 +2,7 @@
 <manifest xmlns:android="http://android.com">
 
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
     <queries>
         <intent>
