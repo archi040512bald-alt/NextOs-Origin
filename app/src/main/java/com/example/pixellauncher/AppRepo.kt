@@ -2,6 +2,7 @@ package com.example.pixellauncher
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 
 object AppRepo {
     fun load(ctx: Context): List<AppInfo> {
@@ -10,12 +11,14 @@ object AppRepo {
         return pm.queryIntentActivities(intent, 0)
             .filter { it.activityInfo.packageName != ctx.packageName }
             .distinctBy { it.activityInfo.packageName }
-            .map {
+            .map { ri ->
+                val system = (ri.activityInfo.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
                 AppInfo(
-                    it.loadLabel(pm).toString(),
-                    it.activityInfo.packageName,
-                    it.activityInfo.name,
-                    IconShaper.shape(it.loadIcon(pm))
+                    ri.loadLabel(pm).toString(),
+                    ri.activityInfo.packageName,
+                    ri.activityInfo.name,
+                    IconShaper.shape(ri.loadIcon(pm)),
+                    system
                 )
             }
             .sortedBy { it.label.lowercase() }

@@ -1,9 +1,11 @@
 package com.example.pixellauncher
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RectF
 import android.os.Handler
@@ -11,15 +13,17 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.DecelerateInterpolator
 import androidx.core.view.drawToBitmap
 import kotlin.math.floor
 import kotlin.math.min
 
 /**
  * Рабочий стол: страницы (свайп) + неподвижный док + индикатор страниц.
- * Долгое нажатие на иконку — перетаскивание (между ячейками, страницами и доком).
+ * Долгое нажатие — перетаскивание. Щипок двумя пальцами — режим редактирования.
  */
 class HomeLayout(ctx: Context) : ViewGroup(ctx) {
 
@@ -27,15 +31,21 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
         const val COLS = 4
         const val ROWS = 6
         val PLATE: Int = Color.argb(64, 255, 255, 255)
+        private const val EDIT_SCALE = 0.30f   // на сколько уменьшаются страницы
+        private const val BLUR_MAX = 100       // px
     }
 
     var onApp: (AppInfo) -> Unit = {}
     var onFolder: (FolderItem) -> Unit = {}
     var onChanged: (List<Item>, List<AppInfo>) -> Unit = { _, _ -> }
+    var onBlur: (Int) -> Unit = {}
+    var onAction: (Int) -> Unit = {}
+    var onUninstall: (AppInfo) -> Unit = {}
 
     private var items = ArrayList<Item>()
     private var dock = ArrayList<AppInfo>()
     private val pages = PagesLayout(ctx)
+    private val bar = EditBar(ctx)
     private val dockViews = ArrayList<View>()
     private val dockRect = RectF()
     private var gridL = 0f
@@ -43,6 +53,14 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
     private var cellW = 0f
     private var cellH = 0f
     private var currentPage = 0
+
+    // ---- режим редактирования ----
+    private var editTarget = false
+    private var editP = 0f
+    private var editAnim: ValueAnimator? = null
+    private var pinching = false
+
+    val editing: Boolean get() = editTarget
 
     // ---- перетаскивание ----
     private sealed class Target {
@@ -75,13 +93,41 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
         strokeCap = Paint.Cap.ROUND
     }
 
+    private val scaleDetector = ScaleGestureDetector(ctx, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        private var startSpan = 0f
+
+        override fun onScaleBegin(d: ScaleGestureDetector): Boolean {
+            startSpan = d.currentSpan
+            return true
+        }
+
+        override fun onScale(d: ScaleGestureDetector): Boolean {
+            if (pinching) return true
+            if (!editTarget && d.currentSpan < startSpan * 0.82f) {
+                pinching = true
+                cancelChildren()
+                enterEdit()
+            } else if (editTarget && d.currentSpan > startSpan * 1.2f) {
+                pinching = true
+                cancelChildren()
+                exitEdit()
+            }
+            return true
+        }
+    }).apply { isQuickScaleEnabled = false }
+
     init {
         setWillNotDraw(false)
         pages.onPageChanged = {
             currentPage = it
             if (dragging) updateTarget()
+            updateBar()
             invalidate()
         }
+        pages.onTap = { if (editTarget) exitEdit() }
+        bar.onPage = { pages.snapTo(it) }
+        bar.onAction = { onAction(it) }
+        bar.visibility = INVISIBLE
     }
 
     fun goToFirstPage() = pages.snapTo(0)
@@ -94,10 +140,18 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
 
     private fun newPage(list: List<Item>) = GridPage(
         context, list,
-        { onApp(it) },
-        { onFolder(it) },
-        { item, v -> startDrag(item, -1, v) }
+        { if (!editTarget) onApp(it) },
+        { if (!editTarget) onFolder(it) },
+        { item, v -> startDrag(item, -1, v) },
+        { onUninstall(it) }
     )
+
+    private fun updateBar() {
+        bar.items = items
+        bar.pageCount = pages.childCount.coerceAtLeast(1)
+        bar.current = currentPage
+        bar.invalidate()
+    }
 
     private fun rebuild(keepPage: Int) {
         removeAllViews()
@@ -113,15 +167,73 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
 
         dock.forEachIndexed { i, a ->
             val v = AppIconView(context, a, showLabel = false)
-            v.setOnClickListener { onApp(a) }
+            v.setOnClickListener { if (!editTarget) onApp(a) }
             v.setOnLongClickListener {
-                startDrag(null, i, v)
-                true
+                if (editTarget) false else {
+                    startDrag(null, i, v)
+                    true
+                }
             }
             dockViews.add(v)
             addView(v)
         }
+        addView(bar)
+        updateBar()
+        applyEdit()
         invalidate()
+    }
+
+    // ---- режим редактирования ----
+
+    fun enterEdit() {
+        if (editTarget || dragging) return
+        editTarget = true
+        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        animateEdit(1f)
+    }
+
+    fun exitEdit() {
+        if (!editTarget) return
+        editTarget = false
+        animateEdit(0f)
+    }
+
+    private fun animateEdit(to: Float) {
+        editAnim?.cancel()
+        editAnim = ValueAnimator.ofFloat(editP, to).apply {
+            duration = 280
+            interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                editP = it.animatedValue as Float
+                applyEdit()
+            }
+            start()
+        }
+    }
+
+    private fun applyEdit() {
+        val p = editP
+        val sc = 1f - EDIT_SCALE * p
+        pages.pivotX = width / 2f
+        pages.pivotY = height * 0.10f
+        pages.scaleX = sc
+        pages.scaleY = sc
+        for (v in dockViews) {
+            v.alpha = 1f - p
+            v.visibility = if (p > 0.99f) INVISIBLE else VISIBLE
+        }
+        for (i in 0 until pages.childCount) (pages.getChildAt(i) as? GridPage)?.setEdit(p)
+        bar.alpha = p
+        bar.visibility = if (p > 0.01f) VISIBLE else INVISIBLE
+        onBlur((p * BLUR_MAX).toInt())
+        invalidate()
+    }
+
+    private fun cancelChildren() {
+        val now = SystemClock.uptimeMillis()
+        val cancel = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, lastX, lastY, 0)
+        super.dispatchTouchEvent(cancel)
+        cancel.recycle()
     }
 
     // ---- layout ----
@@ -139,6 +251,7 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
         dockRect.set(w * 0.05f, h * 0.881f, w * 0.95f, h * 0.974f)
 
         pages.measure(exact(w.toFloat()), exact(h.toFloat()))
+        bar.measure(exact(w.toFloat()), exact(h.toFloat()))
         val dockCellW = dockRect.width() / COLS
         for (v in dockViews) v.measure(exact(dockCellW), exact(dockRect.height()))
     }
@@ -151,6 +264,8 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
             val y = dockRect.top.toInt()
             v.layout(x, y, x + v.measuredWidth, y + v.measuredHeight)
         }
+        bar.layout(0, 0, r - l, b - t)
+        applyEdit() // пересчитать pivot после получения размеров
     }
 
     // ---- касания ----
@@ -162,25 +277,29 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
             onDragEvent(e)
             return true
         }
+        scaleDetector.onTouchEvent(e)
+        if (pinching) {
+            if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) {
+                pinching = false
+            }
+            return true
+        }
         return super.dispatchTouchEvent(e)
     }
 
     private fun startDrag(item: Item?, dockIndex: Int, v: View) {
-        if (dragging) return
+        if (dragging || pinching) return
         val bmp = try { v.drawToBitmap() } catch (_: Exception) { return }
 
-        // отменить текущее касание у дочерних view (до включения режима перетаскивания)
-        val now = SystemClock.uptimeMillis()
-        val cancel = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, lastX, lastY, 0)
-        super.dispatchTouchEvent(cancel)
-        cancel.recycle()
+        cancelChildren() // до включения режима перетаскивания
 
+        val sc = if (editP > 0f) pages.scaleX else 1f
         val vl = IntArray(2)
         val hl = IntArray(2)
         v.getLocationOnScreen(vl)
         getLocationOnScreen(hl)
-        val cx = vl[0] - hl[0] + v.width / 2f
-        val cy = vl[1] - hl[1] + v.height / 2f
+        val cx = vl[0] - hl[0] + v.width * sc / 2f
+        val cy = vl[1] - hl[1] + v.height * sc / 2f
 
         dragging = true
         dragItem = item
@@ -229,10 +348,12 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
         val target = pages.page + flipDir
         if (target < 0) return
         if (target >= pages.childCount) {
-            // можно добавить одну новую пустую страницу
             val real = (items.maxOfOrNull { it.page } ?: 0) + 1
             if (pages.childCount > real) return
-            pages.addView(newPage(emptyList()))
+            val np = newPage(emptyList())
+            pages.addView(np)
+            np.setEdit(editP)
+            updateBar()
             invalidate()
         }
         pages.snapTo(target)
@@ -259,16 +380,27 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
     private fun spanX() = dragItem?.spanX ?: 1
     private fun spanY() = dragItem?.spanY ?: 1
 
+    /** Переводит экранные координаты в координаты страницы (с учётом уменьшения в режиме редактирования). */
+    private fun toPage(x: Float, y: Float): FloatArray {
+        val pt = floatArrayOf(x, y)
+        if (editP > 0f) {
+            val inv = Matrix()
+            if (pages.matrix.invert(inv)) inv.mapPoints(pt)
+        }
+        return pt
+    }
+
     private fun targetAt(): Target? {
-        if (dragY > height * 0.85f) {
+        if (editP < 0.5f && dragY > height * 0.85f) {
             if (dragItem is FolderItem) return null
             val slot = ((dragX - dockRect.left) / (dockRect.width() / COLS)).toInt().coerceIn(0, COLS - 1)
             return Target.Dock(slot)
         }
+        val pt = toPage(dragX, dragY)
         val sx = spanX()
         val sy = spanY()
-        val col = floor((dragX - gridL) / cellW - (sx - 1) / 2f).toInt().coerceIn(0, COLS - sx)
-        val row = floor((dragY - gridT) / cellH - (sy - 1) / 2f).toInt().coerceIn(0, ROWS - sy)
+        val col = floor((pt[0] - gridL) / cellW - (sx - 1) / 2f).toInt().coerceIn(0, COLS - sx)
+        val row = floor((pt[1] - gridT) / cellH - (sy - 1) / 2f).toInt().coerceIn(0, ROWS - sy)
         return Target.Grid(pages.page, col, row)
     }
 
@@ -277,18 +409,27 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
         highlight = if (t != null && plan(t) != null) rectFor(t) else null
     }
 
-    private fun rectFor(t: Target): RectF = when (t) {
-        is Target.Grid -> RectF(
-            gridL + t.col * cellW,
-            gridT + t.row * cellH,
-            gridL + (t.col + spanX()) * cellW,
-            gridT + (t.row + spanY()) * cellH
-        ).apply { inset(cellW * 0.08f, cellW * 0.08f) }
-        is Target.Dock -> {
-            val cw = dockRect.width() / COLS
-            RectF(dockRect.left + t.slot * cw, dockRect.top, dockRect.left + (t.slot + 1) * cw, dockRect.bottom)
-                .apply { inset(cw * 0.08f, cw * 0.08f) }
+    private fun rectFor(t: Target): RectF {
+        val r = when (t) {
+            is Target.Grid -> {
+                val rr = RectF(
+                    gridL + t.col * cellW,
+                    gridT + t.row * cellH,
+                    gridL + (t.col + spanX()) * cellW,
+                    gridT + (t.row + spanY()) * cellH
+                )
+                rr.inset(cellW * 0.08f, cellW * 0.08f)
+                if (editP > 0f) pages.matrix.mapRect(rr)
+                rr
+            }
+            is Target.Dock -> {
+                val cw = dockRect.width() / COLS
+                val rr = RectF(dockRect.left + t.slot * cw, dockRect.top, dockRect.left + (t.slot + 1) * cw, dockRect.bottom)
+                rr.inset(cw * 0.08f, cw * 0.08f)
+                rr
+            }
         }
+        return r
     }
 
     private fun occupants(page: Int, col: Int, row: Int, sx: Int, sy: Int, exclude: Item?): List<Item> =
@@ -381,37 +522,46 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
     override fun onDraw(c: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
+        val fade = 1f - editP
+
+        // затемнение в режиме редактирования (поверх размытых обоев)
+        if (editP > 0f) c.drawColor(Color.argb((editP * 90).toInt(), 0, 0, 0))
 
         // док
+        platePaint.color = Color.argb((64 * fade).toInt(), 255, 255, 255)
         val r = dockRect.height() * 0.27f
         c.drawRoundRect(dockRect, r, r, platePaint)
 
         // подсветка цели перетаскивания
         highlight?.let { c.drawRoundRect(it, it.width() * 0.14f, it.width() * 0.14f, hlPaint) }
 
-        // индикатор: "=" и точки страниц
-        val n = pages.childCount.coerceAtLeast(1)
-        val cy = h * 0.835f
-        val total = n + 1
-        val spacing = min(w * 0.051f, w * 0.8f / (total - 1).coerceAtLeast(1))
-        val startX = w / 2f - (total - 1) * spacing / 2f
-        val hw = w * 0.007f
-        val g = w * 0.0035f
-        linePaint.strokeWidth = w * 0.0035f
-        c.drawLine(startX - hw, cy - g, startX + hw, cy - g, linePaint)
-        c.drawLine(startX - hw, cy + g, startX + hw, cy + g, linePaint)
-        for (i in 0 until n) {
-            dotPaint.alpha = if (i == currentPage) 255 else 90
-            c.drawCircle(startX + (i + 1) * spacing, cy, w * 0.007f, dotPaint)
+        // индикатор: "=" и точки страниц (в режиме редактирования скрыт)
+        if (fade > 0f) {
+            val n = pages.childCount.coerceAtLeast(1)
+            val cy = h * 0.835f
+            val total = n + 1
+            val spacing = min(w * 0.051f, w * 0.8f / (total - 1).coerceAtLeast(1))
+            val startX = w / 2f - (total - 1) * spacing / 2f
+            val hw = w * 0.007f
+            val g = w * 0.0035f
+            linePaint.color = Color.argb((170 * fade).toInt(), 255, 255, 255)
+            linePaint.strokeWidth = w * 0.0035f
+            c.drawLine(startX - hw, cy - g, startX + hw, cy - g, linePaint)
+            c.drawLine(startX - hw, cy + g, startX + hw, cy + g, linePaint)
+            for (i in 0 until n) {
+                dotPaint.alpha = ((if (i == currentPage) 255 else 90) * fade).toInt()
+                c.drawCircle(startX + (i + 1) * spacing, cy, w * 0.007f, dotPaint)
+            }
         }
     }
 
     override fun dispatchDraw(c: Canvas) {
         super.dispatchDraw(c)
         val b = dragBmp ?: return
+        val k = 1.1f * (if (editP > 0f) pages.scaleX else 1f)
         c.save()
         c.translate(dragX, dragY)
-        c.scale(1.1f, 1.1f)
+        c.scale(k, k)
         c.drawBitmap(b, -b.width / 2f, -b.height / 2f, ghostPaint)
         c.restore()
     }

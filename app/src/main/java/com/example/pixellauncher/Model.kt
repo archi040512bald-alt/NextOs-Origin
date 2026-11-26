@@ -2,7 +2,13 @@ package com.example.pixellauncher
 
 import android.graphics.Bitmap
 
-class AppInfo(val label: String, val pkg: String, val cls: String, val icon: Bitmap)
+class AppInfo(
+    val label: String,
+    val pkg: String,
+    val cls: String,
+    val icon: Bitmap,
+    val system: Boolean = false
+)
 
 sealed class Item(var col: Int, var row: Int, val spanX: Int, val spanY: Int, var page: Int)
 

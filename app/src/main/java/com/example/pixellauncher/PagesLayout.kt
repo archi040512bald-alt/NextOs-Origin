@@ -16,6 +16,7 @@ import kotlin.math.roundToInt
 class PagesLayout(ctx: Context) : ViewGroup(ctx) {
 
     var onPageChanged: (Int) -> Unit = {}
+    var onTap: (() -> Unit)? = null
     var page = 0
         private set
 
@@ -120,6 +121,8 @@ class PagesLayout(ctx: Context) : ViewGroup(ctx) {
                         target = if (vx < 0) ceil(pos).toInt() else floor(pos).toInt()
                     }
                     snapTo(target)
+                } else if (!dragging && e.actionMasked == MotionEvent.ACTION_UP) {
+                    onTap?.invoke()
                 }
                 dragging = false
                 tracker?.recycle()
