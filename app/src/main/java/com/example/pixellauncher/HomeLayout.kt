@@ -13,7 +13,7 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import androidx.core.graphics.drawToBitmap
+import androidx.core.view.drawToBitmap
 import kotlin.math.floor
 import kotlin.math.min
 
