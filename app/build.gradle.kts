@@ -7,15 +7,30 @@ android {
     namespace = "com.example.pixellauncher"
     compileSdk = 34
 
+    signingConfigs {
+        // Постоянный ключ: каждая сборка подписана одинаково, поэтому APK обновляется поверх старого
+        create("fixed") {
+            storeFile = file("launcher.keystore")
+            storePassword = "launcher123"
+            keyAlias = "launcher"
+            keyPassword = "launcher123"
+        }
+    }
+
     defaultConfig {
-        applicationId = "com.nextos.origin"
+        applicationId = "com.nocebo.launcher"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1"
+        // растёт с каждой сборкой в GitHub Actions
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
+        versionName = "0.3"
     }
     buildTypes {
-        release { isMinifyEnabled = false }
+        debug { signingConfig = signingConfigs.getByName("fixed") }
+        release {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("fixed")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
