@@ -57,12 +57,12 @@ class MainActivity : Activity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        // лаунчер не закрывается по Back; закрываем только папку
-        closeFolder()
+        if (overlay != null) closeFolder() else home.goToFirstPage()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        closeFolder() // нажатие Home
+        // нажатие Home: закрыть папку и вернуться на первую страницу
+        if (overlay != null) closeFolder() else home.goToFirstPage()
     }
 }
