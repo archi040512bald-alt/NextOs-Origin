@@ -14,7 +14,6 @@ import android.view.View
 class FolderView(ctx: Context, val folder: FolderItem) : View(ctx) {
 
     private val big = folder.spanX > 1 || folder.spanY > 1
-    private val platePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = HomeLayout.PLATE }
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val text = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
@@ -54,7 +53,9 @@ class FolderView(ctx: Context, val folder: FolderItem) : View(ctx) {
         val pw = plate.width()
         val ph = plate.height()
         val r = if (big) 0.14f * minOf(pw, ph) else 0.27f * pw
-        c.drawRoundRect(plate, r, r, platePaint)
+
+        // Рисуем матовое стекло OriginOS
+        GlassEngine.drawGlass(c, this, plate, r)
 
         // параметры превью: k x k иконок
         val k: Int
