@@ -20,6 +20,10 @@ class FolderView(ctx: Context, val folder: FolderItem) : View(ctx) {
         color = Color.WHITE
         textAlign = Paint.Align.CENTER
         setShadowLayer(4f, 0f, 1.5f, 0x66000000)
+        runCatching {
+            val fontId = ctx.resources.getIdentifier("origin_font", "font", ctx.packageName)
+            if (fontId != 0) typeface = ctx.resources.getFont(fontId)
+        }
     }
     private val plate = RectF()
     private val dst = RectF()
