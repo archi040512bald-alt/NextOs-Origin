@@ -5,7 +5,6 @@ import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.View
 import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.LinearLayout
@@ -51,6 +50,10 @@ class FolderOverlay(
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
             gravity = Gravity.CENTER
             setPadding(0, 0, 0, pad / 2)
+            runCatching {
+                val fontId = ctx.resources.getIdentifier("origin_font", "font", ctx.packageName)
+                if (fontId != 0) typeface = ctx.resources.getFont(fontId)
+            }
         }
         panel.addView(title, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
