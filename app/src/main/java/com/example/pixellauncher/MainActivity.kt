@@ -107,7 +107,17 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(code: Int, perms: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(code, perms, results)
-        if (code == 1 && results.firstOrNull() == PackageManager.PERMISSION_GRANTED) loadBackdrop()
+        if (code == 1) {
+            if (results.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                loadBackdrop()
+            } else {
+                Toast.makeText(
+                    this,
+                    "Размытие выключено: нет доступа к фото. Настройки → Приложения → лаунчер → Разрешения → Фото и видео → «Разрешить все»",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -116,8 +126,14 @@ class MainActivity : Activity() {
         windowManager.defaultDisplay.getRealMetrics(dm)
         val ctx = applicationContext
         Thread {
-            if (Backdrop.load(ctx, dm.widthPixels, dm.heightPixels)) {
-                runOnUiThread { home.invalidate() }
+            val ok = Backdrop.load(ctx, dm.widthPixels, dm.heightPixels)
+            runOnUiThread {
+                if (ok) {
+                    home.invalidate()
+                    Toast.makeText(this, "Размытие обоев: включено", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Размытие выключено: ${Backdrop.lastError}", Toast.LENGTH_LONG).show()
+                }
             }
         }.start()
     }
