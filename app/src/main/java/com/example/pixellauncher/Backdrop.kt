@@ -3,26 +3,39 @@ package com.example.pixellauncher
 import android.app.WallpaperManager
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.net.Uri
 import androidx.core.graphics.drawable.toBitmap
+import java.io.File
+import java.io.FileOutputStream
 import kotlin.math.max
 
 /**
- * Размытая копия обоев. Плашки папок, дока и панелей рисуют из неё свой кусок
- * (эффект матового стекла). Если обои прочитать нельзя — рисуется обычная полупрозрачная плашка.
+ * Обои лаунчера и их размытая копия.
+ * Плашки папок, дока и панелей рисуют из размытой копии свой кусок (матовое стекло).
+ *
+ * Источник обоев:
+ *  1) картинка, выбранная пользователем в лаунчере (хранится у приложения, права не нужны);
+ *  2) иначе — пробуем системные обои (на многих телефонах система это запрещает).
  */
 object Backdrop {
+    /** Обои лаунчера в размер экрана (null — рисуются системные обои). */
+    @Volatile
+    var sharp: Bitmap? = null
+
     @Volatile
     var blurred: Bitmap? = null
 
     /** Почему не удалось загрузить обои (для сообщения пользователю). */
     @Volatile
     var lastError: String = ""
+
     private var screenW = 1f
     private var screenH = 1f
 
@@ -31,35 +44,104 @@ object Backdrop {
     private val path = Path()
     private val matrix = Matrix()
 
-    /** Читает обои и готовит размытую копию. Вызывать НЕ из UI-потока. */
+    private fun file(ctx: Context) = File(ctx.filesDir, "wallpaper.jpg")
+
+    /** Загружает обои. Вызывать НЕ из UI-потока. */
     fun load(ctx: Context, sw: Int, sh: Int): Boolean {
         return try {
-            val d = WallpaperManager.getInstance(ctx).drawable
-            if (d == null) {
-                lastError = "система не отдаёт обои (живые обои или ограничение)"
+            val f = file(ctx)
+            if (f.exists()) {
+                val bmp = BitmapFactory.decodeFile(f.absolutePath)
+                if (bmp != null) {
+                    applyWallpaper(bmp, sw, sh)
+                    return true
+                }
+            }
+            loadSystem(ctx, sw, sh)
+        } catch (t: Throwable) {
+            lastError = (t.javaClass.simpleName + ": " + (t.message ?: "")).take(120)
+            false
+        }
+    }
+
+    /** Берёт картинку по uri как обои лаунчера и сохраняет её. НЕ из UI-потока. */
+    fun setFromUri(ctx: Context, uri: Uri, sw: Int, sh: Int): Boolean {
+        return try {
+            val src = decodeUri(ctx, uri, max(sw, sh))
+            if (src == null) {
+                lastError = "не удалось открыть картинку"
                 return false
             }
-            var bmp = d.toBitmap()
-            var copied = false
-            if (bmp.config == Bitmap.Config.HARDWARE) {
-                val copy = bmp.copy(Bitmap.Config.ARGB_8888, false)
-                if (copy == null) {
-                    lastError = "не хватило памяти под обои"
-                    return false
-                }
-                bmp = copy
-                copied = true
-            }
-            val out = makeBlur(bmp, sw, sh)
-            if (copied) bmp.recycle()
-            screenW = sw.toFloat()
-            screenH = sh.toFloat()
-            blurred = out
+            applyWallpaper(src, sw, sh)
+            val s = sharp ?: return false
+            FileOutputStream(file(ctx)).use { s.compress(Bitmap.CompressFormat.JPEG, 92, it) }
             true
         } catch (t: Throwable) {
             lastError = (t.javaClass.simpleName + ": " + (t.message ?: "")).take(120)
             false
         }
+    }
+
+    private fun decodeUri(ctx: Context, uri: Uri, maxSide: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        var sample = 1
+        while (max(bounds.outWidth, bounds.outHeight) / sample > maxSide * 2) sample *= 2
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        return ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+    }
+
+    /** Обрезает картинку по центру под пропорции экрана и готовит размытую копию. */
+    private fun applyWallpaper(src: Bitmap, sw: Int, sh: Int) {
+        val target = sw.toFloat() / sh
+        val sa = src.width.toFloat() / src.height
+        val cw: Int
+        val ch: Int
+        if (sa > target) {
+            cw = (src.height * target).toInt().coerceAtLeast(1)
+            ch = src.height
+        } else {
+            cw = src.width
+            ch = (src.width / target).toInt().coerceAtLeast(1)
+        }
+        val x = (src.width - cw) / 2
+        val y = (src.height - ch) / 2
+        val cropped = Bitmap.createBitmap(src, x, y, cw, ch)
+        val fin = if (cropped.width == sw && cropped.height == sh) cropped
+        else Bitmap.createScaledBitmap(cropped, sw, sh, true)
+
+        val blur = makeBlur(fin, sw, sh)
+        screenW = sw.toFloat()
+        screenH = sh.toFloat()
+        blurred = blur
+        sharp = fin
+    }
+
+    /** Запасной вариант: системные обои (нужен доступ, на многих телефонах недоступен). */
+    private fun loadSystem(ctx: Context, sw: Int, sh: Int): Boolean {
+        val d = WallpaperManager.getInstance(ctx).drawable
+        if (d == null) {
+            lastError = "система не отдаёт обои"
+            return false
+        }
+        var bmp = d.toBitmap()
+        var copied = false
+        if (bmp.config == Bitmap.Config.HARDWARE) {
+            val copy = bmp.copy(Bitmap.Config.ARGB_8888, false)
+            if (copy == null) {
+                lastError = "не хватило памяти под обои"
+                return false
+            }
+            bmp = copy
+            copied = true
+        }
+        val out = makeBlur(bmp, sw, sh)
+        if (copied) bmp.recycle()
+        screenW = sw.toFloat()
+        screenH = sh.toFloat()
+        blurred = out
+        sharp = null
+        return true
     }
 
     private fun makeBlur(src: Bitmap, sw: Int, sh: Int): Bitmap {
