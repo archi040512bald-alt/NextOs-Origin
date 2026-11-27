@@ -6,11 +6,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-      - uses: android-actions/setup-android@v4
-      - name: Set app icon, font and manifest
+        with: { distribution: temurin, java-version: 17 }
+      - uses: android-actions/setup-android@v3
+      - name: Set app icon from root
         run: |
           ICON=$(ls *.png 2>/dev/null | head -n 1)
           if [ -n "$ICON" ]; then
@@ -20,38 +18,8 @@ jobs:
             done
             rm -f app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
           fi
-          FONT=$(ls *.ttf 2>/dev/null | head -n 1)
-          if [ -n "$FONT" ]; then
-            mkdir -p app/src/main/res/font
-            cp "$FONT" app/src/main/res/font/origin_font.ttf
-          fi
-          NS=$(printf '\x68\x74\x74\x70://://android.com')
-          cat <<EOF > app/src/main/AndroidManifest.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="$NS">
-              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-              <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-              <queries>
-                  <intent>
-                      <action android:name="android.intent.action.MAIN" />
-                      <category android:name="android.intent.category.LAUNCHER" />
-                  </intent>
-              </queries>
-              <application android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:label="NextOS Launcher" android:theme="@style/Theme.Launcher">
-                  <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask" android:stateNotNeeded="true" android:resumeWhilePausing="true" android:screenOrientation="portrait">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.HOME" />
-                          <category android:name="android.intent.category.DEFAULT" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                  </activity>
-              </application>
-          </manifest>
-          EOF
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: 8.7
+        with: { gradle-version: 8.7 }
       - run: gradle assembleDebug
       - uses: actions/upload-artifact@v4
         with:
