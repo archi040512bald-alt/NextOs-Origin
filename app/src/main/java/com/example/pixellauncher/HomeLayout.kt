@@ -521,6 +521,8 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
     // ---- рисование ----
 
     private val tmpRect = RectF()
+    private val wallDst = RectF()
+    private val wallPaint = Paint(Paint.FILTER_BITMAP_FLAG)
 
     /** Плашки папок рисуются здесь (под страницами), чтобы размытие совпадало с обоями при прокрутке. */
     private fun drawFolderPlates(c: Canvas) {
@@ -543,6 +545,20 @@ class HomeLayout(ctx: Context) : ViewGroup(ctx) {
         val w = width.toFloat()
         val h = height.toFloat()
         val fade = 1f - editP
+
+        // обои лаунчера (если выбраны); в режиме редактирования плавно переходят в размытые
+        val wall = Backdrop.sharp
+        if (wall != null) {
+            wallDst.set(0f, 0f, w, h)
+            wallPaint.alpha = 255
+            c.drawBitmap(wall, null, wallDst, wallPaint)
+            val bl = Backdrop.blurred
+            if (editP > 0f && bl != null) {
+                wallPaint.alpha = (255 * editP).toInt()
+                c.drawBitmap(bl, null, wallDst, wallPaint)
+                wallPaint.alpha = 255
+            }
+        }
 
         // затемнение в режиме редактирования (поверх размытых обоев)
         if (editP > 0f) c.drawColor(Color.argb((editP * 90).toInt(), 0, 0, 0))
