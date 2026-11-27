@@ -1,13 +1,11 @@
 package com.example.pixellauncher
 
-import android.Manifest
 import android.app.Activity
-import android.app.WallpaperManager
+import android.app.AlertDialog
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
@@ -19,6 +17,10 @@ import android.widget.Toast
 import androidx.core.view.WindowCompat
 
 class MainActivity : Activity() {
+
+    private companion object {
+        const val REQ_WALLPAPER = 7
+    }
 
     private lateinit var root: FrameLayout
     private lateinit var home: HomeLayout
@@ -38,10 +40,6 @@ class MainActivity : Activity() {
             home.removeCallbacks(reloadRunnable)
             home.postDelayed(reloadRunnable, 400)
         }
-    }
-
-    private val wallpaperReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) = loadBackdrop()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -68,72 +66,76 @@ class MainActivity : Activity() {
         home.onUninstall = ::uninstall
 
         loadApps()
-        ensureWallpaperAccess()
+        loadBackdrop()
 
         val f = IntentFilter().apply {
             addAction(Intent.ACTION_PACKAGE_ADDED)
             addAction(Intent.ACTION_PACKAGE_REMOVED)
             addDataScheme("package")
         }
-        val wf = IntentFilter(Intent.ACTION_WALLPAPER_CHANGED)
-        if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(pkgReceiver, f, Context.RECEIVER_EXPORTED)
-            registerReceiver(wallpaperReceiver, wf, Context.RECEIVER_EXPORTED)
-        } else {
-            registerReceiver(pkgReceiver, f)
-            registerReceiver(wallpaperReceiver, wf)
-        }
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(pkgReceiver, f, Context.RECEIVER_EXPORTED)
+        else registerReceiver(pkgReceiver, f)
     }
 
     override fun onDestroy() {
         super.onDestroy()
         try { unregisterReceiver(pkgReceiver) } catch (_: Exception) {}
-        try { unregisterReceiver(wallpaperReceiver) } catch (_: Exception) {}
     }
 
-    // ---- размытие под папками и доком: нужен доступ к обоям ----
-
-    private fun wallpaperPermission() =
-        if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES
-        else Manifest.permission.READ_EXTERNAL_STORAGE
-
-    private fun ensureWallpaperAccess() {
-        if (checkSelfPermission(wallpaperPermission()) == PackageManager.PERMISSION_GRANTED) {
-            loadBackdrop()
-        } else {
-            requestPermissions(arrayOf(wallpaperPermission()), 1)
-        }
-    }
-
-    override fun onRequestPermissionsResult(code: Int, perms: Array<out String>, results: IntArray) {
-        super.onRequestPermissionsResult(code, perms, results)
-        if (code == 1) {
-            if (results.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-                loadBackdrop()
-            } else {
-                Toast.makeText(
-                    this,
-                    "Размытие выключено: нет доступа к фото. Настройки → Приложения → лаунчер → Разрешения → Фото и видео → «Разрешить все»",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-        }
-    }
+    // ---- обои лаунчера и размытие ----
 
     @Suppress("DEPRECATION")
-    private fun loadBackdrop() {
+    private fun screenSize(): Pair<Int, Int> {
         val dm = DisplayMetrics()
         windowManager.defaultDisplay.getRealMetrics(dm)
+        return dm.widthPixels to dm.heightPixels
+    }
+
+    private fun loadBackdrop() {
+        val (w, h) = screenSize()
         val ctx = applicationContext
         Thread {
-            val ok = Backdrop.load(ctx, dm.widthPixels, dm.heightPixels)
+            val ok = Backdrop.load(ctx, w, h)
+            runOnUiThread { if (ok) home.invalidate() else maybeAskWallpaper() }
+        }.start()
+    }
+
+    /** Один раз предлагает выбрать обои для лаунчера, если система не отдала свои. */
+    private fun maybeAskWallpaper() {
+        val prefs = getSharedPreferences("launcher", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("wp_asked", false)) return
+        prefs.edit().putBoolean("wp_asked", true).apply()
+        AlertDialog.Builder(this)
+            .setTitle("Размытие под папками и доком")
+            .setMessage("Система не даёт лаунчеру прочитать обои. Выбери картинку: она станет обоями лаунчера, и фон папок и дока будет размытым.")
+            .setPositiveButton("Выбрать") { _, _ -> pickWallpaper() }
+            .setNegativeButton("Позже", null)
+            .show()
+    }
+
+    private fun pickWallpaper() {
+        val i = Intent(Intent.ACTION_GET_CONTENT)
+            .setType("image/*")
+            .addCategory(Intent.CATEGORY_OPENABLE)
+        try {
+            startActivityForResult(Intent.createChooser(i, "Обои лаунчера"), REQ_WALLPAPER)
+        } catch (_: Exception) {
+            Toast.makeText(this, "Нет приложения для выбора картинки", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_WALLPAPER || resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        val (w, h) = screenSize()
+        val ctx = applicationContext
+        Thread {
+            val ok = Backdrop.setFromUri(ctx, uri, w, h)
             runOnUiThread {
-                if (ok) {
-                    home.invalidate()
-                    Toast.makeText(this, "Размытие обоев: включено", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(this, "Размытие выключено: ${Backdrop.lastError}", Toast.LENGTH_LONG).show()
-                }
+                if (ok) home.invalidate()
+                else Toast.makeText(this, "Не удалось загрузить картинку: ${Backdrop.lastError}", Toast.LENGTH_LONG).show()
             }
         }.start()
     }
@@ -169,9 +171,15 @@ class MainActivity : Activity() {
             0 -> Toast.makeText(this, "Комплект — скоро", Toast.LENGTH_SHORT).show()
             1 -> Toast.makeText(this, "Куб настройки — скоро", Toast.LENGTH_SHORT).show()
             2 -> Toast.makeText(this, "Куб взаимодействия — скоро", Toast.LENGTH_SHORT).show()
-            else -> try {
-                startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
-            } catch (_: Exception) {}
+            else -> AlertDialog.Builder(this)
+                .setTitle("Настройки")
+                .setItems(arrayOf<CharSequence>("Обои лаунчера", "Лаунчер по умолчанию")) { _, which ->
+                    if (which == 0) pickWallpaper()
+                    else try {
+                        startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
+                    } catch (_: Exception) {}
+                }
+                .show()
         }
     }
 
