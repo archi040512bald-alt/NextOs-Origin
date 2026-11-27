@@ -19,6 +19,10 @@ import kotlin.math.max
 object Backdrop {
     @Volatile
     var blurred: Bitmap? = null
+
+    /** Почему не удалось загрузить обои (для сообщения пользователю). */
+    @Volatile
+    var lastError: String = ""
     private var screenW = 1f
     private var screenH = 1f
 
@@ -30,11 +34,20 @@ object Backdrop {
     /** Читает обои и готовит размытую копию. Вызывать НЕ из UI-потока. */
     fun load(ctx: Context, sw: Int, sh: Int): Boolean {
         return try {
-            val d = WallpaperManager.getInstance(ctx).drawable ?: return false
+            val d = WallpaperManager.getInstance(ctx).drawable
+            if (d == null) {
+                lastError = "система не отдаёт обои (живые обои или ограничение)"
+                return false
+            }
             var bmp = d.toBitmap()
             var copied = false
             if (bmp.config == Bitmap.Config.HARDWARE) {
-                bmp = bmp.copy(Bitmap.Config.ARGB_8888, false) ?: return false
+                val copy = bmp.copy(Bitmap.Config.ARGB_8888, false)
+                if (copy == null) {
+                    lastError = "не хватило памяти под обои"
+                    return false
+                }
+                bmp = copy
                 copied = true
             }
             val out = makeBlur(bmp, sw, sh)
@@ -44,6 +57,7 @@ object Backdrop {
             blurred = out
             true
         } catch (t: Throwable) {
+            lastError = (t.javaClass.simpleName + ": " + (t.message ?: "")).take(120)
             false
         }
     }
